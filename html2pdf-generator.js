@@ -11,8 +11,10 @@ const options = commander
   .version('1.0.0', '-v, --version')
   .usage('[OPTIONS]...')
   .option('-k, --keys <key,key,key>', 'Specify list of allowed API keys separated by comma and without spaces', '')
+  .option('-h, --host <value>', 'Binding host', '0.0.0.0')
   .option('-p, --port <value>', 'Binding port', 3000)
   .option('-t, --threads <value>', 'Maximum browser threads', 5)
+  .option('-ch, --chromium <value>', 'Chromium browser path')
   .parse(process.argv).opts();
 
 var keys = options.keys.split(',').filter(function(i) {
@@ -23,7 +25,7 @@ const pool = ((require('./puppet-pool'))({
   max: options.threads,
   acquireTimeoutMillis: 120000,
   priorityRange: 3
-}));
+}, options.chromium));
 
 const app = express();
 app.use(bearerToken());
@@ -90,7 +92,7 @@ app.get('/', function(req, res) {
   });
 });
 
-var server = app.listen(options.port, function() {
+var server = app.listen(options.port, options.host, function() {
   var host = server.address().address
   var port = server.address().port
   console.log("App listening at http://%s:%s", host, port)

@@ -4,7 +4,8 @@
   "description": "Web application which is using headless Puppeteer to generate PDF out of HTML",
   "main": "html2pdf-generator.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node html2pdf-generator.js",
+    "dev": "node html2pdf-generator.js -k mykey"
   },
   "author": "Oleksii Glib",
   "license": "ISC",
