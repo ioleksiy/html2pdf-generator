@@ -5,19 +5,30 @@ module.exports = function(opts, chromiumPath) {
   var params = {
     headless: 'new',
     args: [
-      "--disable-gpu", // usually not available on containers
-      "--disable-dev-shm-usage", // This flag is necessary to avoid running into issues with Docker’s default low shared memory space of 64MB. Chrome will write into /tmp instead
-      // disable sandbox when using ROOT user (not recommended)
-      "--disable-setuid-sandbox",
-      "--no-sandbox",
-      "--single-process" // FATAL:zygote_main_linux.cc(162)] Check failed: sandbox::ThreadHelpers::IsSingleThreaded()
-      //'--no-sandbox',
-      //'--disable-setuid-sandbox',
-      //'--ignore-certificate-errors'
-    ]
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+      '--window-size=1920x1080',
+      '--single-process'
+    ],
+    ignoreHTTPSErrors: true,
+    defaultViewport: {
+      width: 1920,
+      height: 1080,
+      deviceScaleFactor: 1,
+    },
+    dumpio: false
   };
-  if (chromiumPath) {
-    params.executablePath = chromiumPath;
+  
+  // Use Chromium by default if no path is provided
+  params.executablePath = chromiumPath || '/usr/bin/chromium';
+  
+  // Additional arguments for better stability
+  if (process.env.NO_SANDBOX) {
+    params.args.push('--no-sandbox');
+    params.args.push('--disable-setuid-sandbox');
   }
   var pool = genericPool.createPool({
     create: function() {
