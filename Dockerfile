@@ -27,8 +27,15 @@ RUN if [ "$PUPPETEER_VERSION" != "latest" ]; then \
 # Runtime stage
 FROM --platform=$TARGETPLATFORM node:22-slim
 
-# Install Chrome and dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies first
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Chrome and its dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -48,7 +55,6 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     libxshmfence1 \
     xdg-utils \
-    --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Chrome for the target platform
