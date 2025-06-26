@@ -60,38 +60,47 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Chrome for the target platform
 ARG TARGETARCH
 RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ] || [ "$TARGETARCH" = "arm" ]; then \
-      # Install Chrome from Google's official repository\n      # Install required tools\n      apt-get update && apt-get install -y --no-install-recommends \
-        libxss1 \
-        libxtst6 \
-        libnss3 \
-        libx11-xcb1 \
-        libxcb1 \
-        libx11-2 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxext6 \
-        libxfixes3 \
-        libxrandr2 \
-        libxrender1 \
-        libxshmfence1 \
-        libxslt1.1 \
-        libcups2 \
-        libxcb-dri3-0 \
-        libdrm2 \
-        libgbm1 \
-        libasound2 \
-        libatk1.0-0 \
-        libatk-bridge2.0-0 \
-        libgtk-3-0 && \
-      # Add Google Chrome repository\n      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-archive-keyring.gpg && \
-      echo "deb [arch=$TARGETARCH signed-by=/usr/share/keyrings/google-chrome-archive-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-      # Install Chrome\n      apt-get update && \
-      apt-get install -y google-chrome-stable --no-install-recommends && \
-      # Clean up\n      rm -rf /var/lib/apt/lists/* \
-             /etc/apt/sources.list.d/google-chrome.list \
-             /usr/share/keyrings/google-chrome-archive-keyring.gpg; \
+        # Update package lists first \
+        apt-get update && \
+        # Install Chrome dependencies \
+        apt-get install -y --no-install-recommends \
+            libxss1 \
+            libxtst6 \
+            libnss3 \
+            libx11-xcb1 \
+            libxcb1 \
+            libx11-2 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxext6 \
+            libxfixes3 \
+            libxrandr2 \
+            libxrender1 \
+            libxshmfence1 \
+            libxslt1.1 \
+            libcups2 \
+            libxcb-dri3-0 \
+            libdrm2 \
+            libgbm1 \
+            libasound2 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libgtk-3-0 \
+            libnss3-tools \
+            xdg-utils \
+            fonts-liberation && \
+        # Add Google Chrome repository \
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-archive-keyring.gpg && \
+        echo "deb [arch=$TARGETARCH signed-by=/usr/share/keyrings/google-chrome-archive-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+        # Install Chrome \
+        apt-get update && \
+        apt-get install -y google-chrome-stable --no-install-recommends && \
+        # Clean up \
+        rm -rf /var/lib/apt/lists/* \
+               /etc/apt/sources.list.d/google-chrome.list \
+               /usr/share/keyrings/google-chrome-archive-keyring.gpg; \
     else \
-      echo "Unsupported architecture: $TARGETARCH"; exit 1; \
+        echo "Unsupported architecture: $TARGETARCH"; exit 1; \
     fi
 
 # Create app directory
