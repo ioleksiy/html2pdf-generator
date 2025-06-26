@@ -3,8 +3,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const bearerToken = require('express-bearer-token');
-const fs = require("fs");
-const path = require("path");
+// Removed fs and path as they're no longer needed
 const commander = require('commander');
 
 const options = commander
@@ -86,10 +85,8 @@ app.post('/generate', function(req, res) {
   });
 });
 
-app.get('/', function(req, res) {
-  fs.readFile(path.join(__dirname, "index.html"), 'utf8', function(err, data) {
-    res.end(data);
-  });
+app.get('/health', function(req, res) {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 var server = app.listen(options.port, options.host, function() {
