@@ -23,7 +23,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,36 +36,53 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
+        if: env.SHOULD_BUILD == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Get Puppeteer version
+      - name: Determine Puppeteer version and build condition
         id: puppeteer-version
         run: |
+          # Set default values
+          SHOULD_BUILD="true"
+          # Determine Puppeteer version based on trigger event
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "PUPPETEER_VERSION=${{ github.event.inputs.puppeteer_version }}" >> $GITHUB_ENV
+            PUPPETEER_VERSION="${{ github.event.inputs.puppeteer_version }}"
+            echo "Using manual Puppeteer version: $PUPPETEER_VERSION"
           else
-            PUPPETEER_VERSION=$(grep -oP '(?<="puppeteer": "\^?)[0-9]+\.[0-9]+\.[0-9]+' package.json || echo "latest")
-            echo "PUPPETEER_VERSION=$PUPPETEER_VERSION" >> $GITHUB_ENV
+            # Extract version from package.json, fallback to 'latest'
+            PUPPETEER_VERSION=$(grep -oP '(?<="puppeteer": "\^?)[0-9]+\.[0-9]+\.[0-9]+' package.json 2>/dev/null || echo "latest")
+            echo "Detected Puppeteer version from package.json: $PUPPETEER_VERSION"
           fi
           
           # For scheduled builds, check if we need to update
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            LATEST_TAG=$(curl -s https://registry.hub.docker.com/v2/repositories/ioleksiy/html2pdf-generator/tags | jq -r '.results[] | select(.name | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) | .name' | sort -V | tail -n 1 || echo "")
-            
-            if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" = "$PUPPETEER_VERSION" ]; then
-              echo "No new version of Puppeteer available. Current: $PUPPETEER_VERSION"
-              echo "SHOULD_BUILD=false" >> $GITHUB_ENV
-              exit 0
+            echo "Scheduled build - checking if new version is available..."
+            # Check existing tags with better error handling
+            if command -v jq >/dev/null 2>&1; then
+              LATEST_TAG=$(curl -s --fail --max-time 30 "https://registry.hub.docker.com/v2/repositories/ioleksiy/html2pdf-generator/tags" 2>/dev/null | \
+                jq -r '.results[]? | select(.name | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) | .name' 2>/dev/null | \
+                sort -V | tail -n 1 || echo "")
+              
+              if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" = "$PUPPETEER_VERSION" ]; then
+                echo "No new version available. Current: $PUPPETEER_VERSION, Latest: $LATEST_TAG"
+                SHOULD_BUILD="false"
+              else
+                echo "Build needed. Current: $PUPPETEER_VERSION, Latest: $LATEST_TAG"
+              fi
+            else
+              echo "jq not available, proceeding with build"
             fi
-            echo "New version available or first build. Building for Puppeteer $PUPPETEER_VERSION"
           fi
           
-          echo "SHOULD_BUILD=true" >> $GITHUB_ENV
+          # Set environment variables
+          echo "PUPPETEER_VERSION=$PUPPETEER_VERSION" >> $GITHUB_ENV
+          echo "SHOULD_BUILD=$SHOULD_BUILD" >> $GITHUB_ENV
+          echo "Final decision: PUPPETEER_VERSION=$PUPPETEER_VERSION, SHOULD_BUILD=$SHOULD_BUILD"
 
-      - name: Build and push
+      - name: Build and push Docker image
         if: env.SHOULD_BUILD == 'true'
         uses: docker/build-push-action@v5
         with:
@@ -78,20 +94,11 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.PUPPETEER_VERSION }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Create GitHub Release
-        if: github.event_name == 'push' && env.SHOULD_BUILD == 'true'
-        uses: softprops/action-gh-release@v1
-        with:
-          name: v${{ env.PUPPETEER_VERSION }}
-          tag_name: v${{ env.PUPPETER_VERSION }}
-          body: |
-            Puppeteer version: ${{ env.PUPPETEER_VERSION }}
-            
-            ```sh
-            docker pull ioleksiy/html2pdf-generator:${{ env.PUPPETEER_VERSION }}
-            ```
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build skipped
+        if: env.SHOULD_BUILD != 'true'
+        run: |
+          echo "Build was skipped because no new version is available"
+          echo "Current version: ${{ env.PUPPETEER_VERSION }}"
