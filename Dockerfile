@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.4
-
 # Build stage
 FROM --platform=$BUILDPLATFORM node:22-slim AS builder
 
@@ -27,54 +25,38 @@ RUN if [ "$PUPPETEER_VERSION" != "latest" ]; then \
 # Runtime stage
 FROM --platform=$TARGETPLATFORM node:22-slim
 
-# Install Chromium and dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    gnupg \
-    libx11-6 \
-    libxcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxrandr2 \
-    libxrender1 \
-    libxshmfence1 \
-    libxtst6 \
+# Install fonts
+RUN apt-get update && apt-get install -y \
+    fonts-ipafont-gothic \
+    fonts-wqy-zenhei \
+    fonts-thai-tlwg \
+    fonts-kacst \
+    fonts-freefont-ttf \
     fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libglib2.0-0 \
-    libnspr4 \
-    libnss3 \
-    libpango-1.0-0 \
-    libxkbcommon0 \
-    wget \
-    # Install Chromium
-    && apt-get install -y chromium \
-    # Clean up
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /src/*.deb \
+    fonts-open-sans \
+    fonts-crosextra-carlito \
+    fonts-comic-neue \
     && apt-get clean
 
-# Set Puppeteer to use the correct browser
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV CHROME_PATH=/usr/bin/chromium
+# Install tools
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    wget \
+    && apt-get clean
 
-# Create non-root user and set up directories
-RUN groupadd -r pptruser && useradd -r -g pptruser -G audio,video pptruser \
-    && mkdir -p /home/pptruser/app/tmp \
-    && mkdir -p /home/pptruser/Downloads \
-    && chown -R pptruser:pptruser /home/pptruser \
-    && chmod -R 755 /home/pptruser
+# Install Chromium and prerequisites
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    libnss3 \
+    libxcomposite1 \
+    libxss1 \
+    && apt-get install -y chromium
+
+# Cleanup
+RUN rm -rf /var/lib/apt/lists/* \
+    && rm -rf /src/*.deb \
+    && apt-get clean
 
 # Set environment variables
 ENV NODE_ENV=production \
@@ -83,7 +65,19 @@ ENV NODE_ENV=production \
     THREADS=5 \
     NPM_CONFIG_PREFIX=/home/pptruser/.npm-global \
     PATH=$PATH:/home/pptruser/.npm-global/bin \
-    CHROME_PATH=/usr/bin/google-chrome-stable
+    CHROME_PATH=/usr/bin/google-chrome-stable \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_TMP_DIR=/home/pptruser/app/tmp \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    CHROME_PATH=/usr/bin/chromium
+
+RUN groupadd -r pptruser && useradd -r -g pptruser pptruser \
+    && mkdir -p $PUPPETEER_TMP_DIR \
+    && mkdir -p /home/pptruser/Downloads \
+    && chown -R pptruser:pptruser /home/pptruser \
+    && chmod -R 755 /home/pptruser \
+    && usermod -a -G pptruser pptruser
+
 
 # Set working directory
 WORKDIR /home/pptruser/app

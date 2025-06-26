@@ -1,9 +1,12 @@
 const puppeteer = require('puppeteer');
 const genericPool = require("generic-pool");
 
+const tmpDir = process.env.PUPPETEER_TMP_DIR || path.join(os.tmpdir(), 'puppeteer');
+
 module.exports = function(opts, chromiumPath) {
   var params = {
     headless: 'new',
+    executablePath: chromiumPath || '/usr/bin/chromium',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -11,7 +14,11 @@ module.exports = function(opts, chromiumPath) {
       '--disable-accelerated-2d-canvas',
       '--disable-gpu',
       '--window-size=1920x1080',
-      '--single-process'
+      '--single-process',
+      `--disk-cache-dir=${tmpDir}`,
+      '--disable-application-cache',
+      '--media-cache-size=0',
+      '--disk-cache-size=0'
     ],
     ignoreHTTPSErrors: true,
     defaultViewport: {
@@ -22,24 +29,20 @@ module.exports = function(opts, chromiumPath) {
     dumpio: false
   };
   
-  // Use Chromium by default if no path is provided
-  params.executablePath = chromiumPath || '/usr/bin/chromium';
-  
-  // Additional arguments for better stability
-  if (process.env.NO_SANDBOX) {
-    params.args.push('--no-sandbox');
-    params.args.push('--disable-setuid-sandbox');
-  }
   var pool = genericPool.createPool({
-    create: function() {
-      //open an instance of the Chrome headless browser - Heroku buildpack requires these args
-      return puppeteer.launch(params);
+    create: async function() {
+      return await puppeteer.launch(params);
     },
-    destroy: function(client) {
+    destroy: async function(browser) {
       //close the browser
-      client.close();
+      await browser.close();
     }
   }, opts);
+
+  process.on('SIGTERM', async () => {
+    await pool.drain();
+    await pool.clear();
+  });
 
   pool.on('factoryCreateError', function(err) {
     console.log(err);
@@ -50,11 +53,3 @@ module.exports = function(opts, chromiumPath) {
   });
   return pool;
 };
-/*
-async function destroyChromePool() {
-  // Only call this once in your application -- at the point you want to shutdown and stop using this pool.
-  global.chromepool.drain().then(function() {
-    global.chromepool.clear();
-  });
-
-}*/

@@ -22,27 +22,51 @@ var keys = options.keys.split(',').filter(function(i) {
 
 const pool = ((require('./puppet-pool'))({
   max: options.threads,
-  acquireTimeoutMillis: 120000,
+  acquireTimeoutMillis: 30000,
   priorityRange: 3
 }, options.chromium));
 
-// Make pool.acquire and browser.newPage use promises
-const acquireAsync = util.promisify(pool.acquire).bind(pool);
+/* For high load future
+async function withPage(pageFunction) {
+  const b = await pool.acquire();
+  let context = null;
+  if (b.createBrowserContext) {
+    context = await b.createBrowserContext();
+  } else if (b.createIncognitoBrowserContext) {
+    context = await b.createIncognitoBrowserContext();
+  }
+  const page = await ((context || b).newPage());
+  try {
+    return await pageFunction(page);
+  } finally {
+    await page?.close();
+    await context?.close();
+    await pool.release(b);
+  }
+}
+*/
+
+async function withPage(pageFunction) {
+  const b = await pool.acquire();
+  const page = await b.newPage();
+  try {
+    return await pageFunction(page);
+  } finally {
+    await page?.close();
+    await pool.release(b);
+  }
+}
 
 const app = express();
 app.use(bearerToken());
 app.use(bodyParser.json());
 
-async function generatePdf(browser, html, options = {}) {
-  let page;
+async function generatePdf(page, html, options = {}) {
   try {
     if (!html) {
       throw new Error('HTML content is required');
     }
 
-    console.log('Creating new page...');
-    page = await browser.newPage();
-    
     // Set default viewport and user agent
     await page.setViewport({ width: 1200, height: 800, deviceScaleFactor: 1 });
     await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -90,15 +114,6 @@ async function generatePdf(browser, html, options = {}) {
   } catch (error) {
     console.error('Error in generatePdf:', error);
     throw error; // Re-throw to be handled by the caller
-  } finally {
-    // Always close the page to prevent memory leaks
-    if (page) {
-      try {
-        await page.close();
-      } catch (closeError) {
-        console.error('Error closing page:', closeError);
-      }
-    }
   }
 }
 
@@ -112,66 +127,53 @@ app.post('/generate', async function(req, res) {
     return res.status(400).json({ error: 'Missing required field: html' });
   }
 
-  let browser;
-  try {
-    // Acquire browser from pool
-    browser = await pool.acquire();
-    
-    // Set default PDF options if none provided
-    const pdfOptions = req.body.options || {};
-    
-    // Generate PDF
-    const pdf = await generatePdf(browser, req.body.html, pdfOptions);
-    
-    // Validate PDF
-    if (!Buffer.isBuffer(pdf) || pdf.length === 0) {
-      throw new Error('Failed to generate PDF: Empty or invalid PDF buffer');
-    }
-    
-    // Set response headers
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Length', pdf.length);
-    
-    // Add filename to Content-Disposition if provided
-    if (req.body.filename) {
-      const filename = encodeURIComponent(req.body.filename);
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    }
-    
-    // Send the PDF
-    res.end(pdf);
-    
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    
-    // Only send error response if headers haven't been sent yet
-    if (!res.headersSent) {
-      res.status(500).json({
-        error: 'Failed to generate PDF',
-        message: error.message,
-        ...(process.env.NODE_ENV === 'development' ? { stack: error.stack } : {})
-      });
-    }
-  } finally {
-    // Always release the browser back to the pool
-    if (browser) {
-      try {
-        await pool.release(browser);
-      } catch (releaseError) {
-        console.error('Error releasing browser back to pool:', releaseError);
+  return withPage(async (page) => {
+    try {
+      // Set default PDF options if none provided
+      const pdfOptions = req.body.options || {};
+      
+      // Generate PDF
+      const pdf = await generatePdf(page, req.body.html, pdfOptions);
+      
+      // Validate PDF
+      if (!Buffer.isBuffer(pdf) || pdf.length === 0) {
+        throw new Error('Failed to generate PDF: Empty or invalid PDF buffer');
+      }
+      
+      // Set response headers
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Length', pdf.length);
+      
+      // Add filename to Content-Disposition if provided
+      if (req.body.filename) {
+        const filename = encodeURIComponent(req.body.filename);
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      }
+      
+      // Send the PDF
+      res.end(pdf);
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      
+      // Only send error response if headers haven't been sent yet
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: 'Failed to generate PDF',
+          message: error.message,
+          ...(process.env.NODE_ENV === 'development' ? { stack: error.stack } : {})
+        });
       }
     }
-  }
+  }); 
 });
 
 async function checkChromeAndPuppeteer() {
-  let browser;
+  return withPage(async (page) => {
   try {
     console.log('Health check: Attempting to acquire browser from pool...');
-    browser = await pool.acquire();
     console.log('Health check: Browser acquired, creating new page...');
     
-    const page = await browser.newPage();
     console.log('Health check: Page created, setting content...');
     
     // Set a timeout for page operations
@@ -300,16 +302,6 @@ async function checkChromeAndPuppeteer() {
     console.error('Health check failed with error:', error);
     console.error('Error stack:', error.stack);
     
-    // Try to get more details about the browser
-    if (browser) {
-      try {
-        const browserVersion = await browser.version();
-        console.error(`Browser version: ${browserVersion}`);
-      } catch (e) {
-        console.error('Could not get browser version:', e.message);
-      }
-    }
-    
     return { 
       success: false, 
       error: error.message || 'Unknown error during health check',
@@ -319,15 +311,8 @@ async function checkChromeAndPuppeteer() {
       platform: process.platform,
       arch: process.arch
     };
-  } finally {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (e) {
-        console.error('Error closing browser during health check:', e);
-      }
-    }
   }
+});
 }
 
 app.get('/health', async function(req, res) {
