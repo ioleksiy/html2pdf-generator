@@ -59,7 +59,7 @@ async function withPage(pageFunction) {
 
 const app = express();
 app.use(bearerToken());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
 
 async function generatePdf(page, html, options = {}) {
   try {
